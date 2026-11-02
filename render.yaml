@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: iotriego-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Render inyecta PORT automaticamente; gunicorn lo lee en docker-entrypoint.sh
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # se configura manualmente en el dashboard
+      - key: SECRET_KEY
+        generateValue: true  # Render genera uno aleatorio seguro
+      - key: DEBUG
+        value: "False"
+      - key: DB_SSLMODE
+        value: "require"
+      - key: DB_CONN_MAX_AGE
+        value: "600"
+      - key: GUNICORN_WORKERS
+        value: "2"
+      - key: GUNICORN_TIMEOUT
+        value: "120"
