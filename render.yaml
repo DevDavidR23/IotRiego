@@ -19,3 +19,4 @@ services:
         value: "2"
       - key: GUNICORN_TIMEOUT
         value: "120"
+
