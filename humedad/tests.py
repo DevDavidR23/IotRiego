@@ -17,6 +17,21 @@ class CorsConfigurationTests(SimpleTestCase):
         )
         self.assertIn('POST', response['Access-Control-Allow-Methods'])
 
+    def test_preflight_allows_vercel_frontend(self):
+        response = self.client.options(
+            '/api/promedio-diario/',
+            HTTP_ORIGIN='https://humidus.vercel.app',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Access-Control-Allow-Origin'],
+            'https://humidus.vercel.app',
+        )
+        self.assertIn('POST', response['Access-Control-Allow-Methods'])
+
     def test_cors_does_not_allow_unconfigured_origin(self):
         response = self.client.get(
             '/',
