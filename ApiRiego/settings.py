@@ -146,8 +146,14 @@ WSGI_APPLICATION = 'ApiRiego.wsgi.application'
 
 def _database_from_url(url):
     parsed = urlparse(url)
-    if parsed.scheme not in ('postgres', 'postgresql'):
-        raise ValueError('DATABASE_URL debe usar el esquema postgresql://')
+    if parsed.scheme not in ('postgres', 'postgresql', 'sqlite'):
+        raise ValueError('DATABASE_URL debe usar el esquema postgresql:// o sqlite://')
+
+    if parsed.scheme == 'sqlite':
+        return {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': parsed.path.lstrip('/') or 'db.sqlite3',
+        }
 
     return {
         'ENGINE': 'django.db.backends.postgresql',
