@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'humedad',
     'promedio_diario',
+    'control',
 ]
 
 MIDDLEWARE = [
@@ -82,6 +83,38 @@ CORS_ALLOWED_ORIGINS = [
     ).split(',')
     if origin.strip()
 ]
+
+# El frontend se autentica con la sesion de Django; necesita enviar cookies.
+CORS_ALLOW_CREDENTIALS = True
+
+# Origenes de confianza para peticiones POST con CSRF.
+CSRF_TRUSTED_ORIGINS = [
+    origin for origin in CORS_ALLOWED_ORIGINS
+    if origin.startswith(('http://', 'https://'))
+]
+
+# Cookies de sesion utilizables desde el frontend desplegado en otro dominio.
+# En produccion (HTTPS) se requiere SameSite=None + Secure.
+SESSION_COOKIE_SECURE = os.getenv(
+    'SESSION_COOKIE_SECURE',
+    'False' if DEBUG else 'True',
+).lower() in ('true', '1', 'yes')
+SESSION_COOKIE_SAMESITE = os.getenv(
+    'SESSION_COOKIE_SAMESITE',
+    'Lax' if DEBUG else 'None',
+)
+
+# La cookie CSRF tambien debe viajar en peticiones cross-origin.
+CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+CSRF_COOKIE_SAMESITE = SESSION_COOKIE_SAMESITE
+
+# Integracion con Node-RED (Render). La URL y el token viven en el entorno.
+NODERED_BASE_URL = os.getenv('NODERED_BASE_URL', '').rstrip('/')
+NODERED_API_TOKEN = os.getenv('NODERED_API_TOKEN', '')
+try:
+    NODERED_TIMEOUT = float(os.getenv('NODERED_TIMEOUT', '5'))
+except ValueError:
+    NODERED_TIMEOUT = 5.0
 
 ROOT_URLCONF = 'ApiRiego.urls'
 

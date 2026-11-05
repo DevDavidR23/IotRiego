@@ -28,4 +28,5 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('humedad.urls')),
     path('api/', include('promedio_diario.urls')),
+    path('api/', include('control.urls')),
 ]

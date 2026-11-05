@@ -19,4 +19,10 @@ services:
         value: "2"
       - key: GUNICORN_TIMEOUT
         value: "120"
+      - key: NODERED_BASE_URL
+        value: "https://node-red-suelo.onrender.com"
+      - key: NODERED_API_TOKEN
+        sync: false
+      - key: NODERED_TIMEOUT
+        value: "5"
 

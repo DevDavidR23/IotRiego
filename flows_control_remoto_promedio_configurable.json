@@ -1,0 +1,508 @@
+[
+    {
+        "id": "flow_suelo",
+        "type": "tab",
+        "label": "Humedad de suelo ESP32 - Supabase MVP",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "mqtt_datos",
+        "type": "mqtt in",
+        "z": "flow_suelo",
+        "name": "Suelo datos",
+        "topic": "esp32/suelo/data",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "broker_emqx",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [
+                "fn_preparar_insert",
+                "debug_datos"
+            ]
+        ]
+    },
+    {
+        "id": "fn_preparar_insert",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Validar y preparar INSERT",
+        "func": "// Validar humedad antes de guardar\nconst h = Number(msg.payload && msg.payload.humedad);\n\nif (!Number.isFinite(h) || h < 0 || h > 100) {\n    node.warn(\"Humedad inválida: \" + (msg.payload && msg.payload.humedad));\n    return null;\n}\n\nmsg.query = 'INSERT INTO humedad (humedad, \"timestamp\") VALUES ($1, NOW());';\nmsg.params = [h];\nmsg.topic = \"humedad\";\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 100,
+        "wires": [
+            [
+                "pg_insert"
+            ]
+        ]
+    },
+    {
+        "id": "debug_datos",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "JSON completo",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 400,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "pg_insert",
+        "type": "postgresql",
+        "z": "flow_suelo",
+        "name": "Insert Humedad",
+        "query": "",
+        "postgreSQLConfig": "supabase_config",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 650,
+        "y": 100,
+        "wires": [
+            [
+                "debug_insert"
+            ]
+        ]
+    },
+    {
+        "id": "debug_insert",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "Resultado Insert",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "pgsql",
+        "targetType": "msg",
+        "statusVal": "pgsql.command",
+        "statusType": "msg",
+        "x": 860,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "mqtt_estado",
+        "type": "mqtt in",
+        "z": "flow_suelo",
+        "name": "Estado ESP32",
+        "topic": "esp32/suelo/estado",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "broker_emqx",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 240,
+        "wires": [
+            [
+                "debug_estado"
+            ]
+        ]
+    },
+    {
+        "id": "debug_estado",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "online / offline",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "payload",
+        "statusType": "auto",
+        "x": 400,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "mqtt_bomba",
+        "type": "mqtt in",
+        "z": "flow_suelo",
+        "name": "Estado bomba",
+        "topic": "esp32/suelo/bomba",
+        "qos": "1",
+        "datatype": "utf8",
+        "broker": "broker_emqx",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 300,
+        "wires": [
+            [
+                "debug_bomba"
+            ]
+        ]
+    },
+    {
+        "id": "debug_bomba",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "Bomba on / off",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "payload",
+        "statusType": "auto",
+        "x": 400,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "inject_promedio",
+        "type": "inject",
+        "z": "flow_suelo",
+        "name": "PROMEDIO DIARIO - cambiar hora en crontab",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "cron",
+        "crontab": "0 16 * * *",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 190,
+        "y": 400,
+        "wires": [
+            [
+                "fn_promedio_diario"
+            ]
+        ]
+    },
+    {
+        "id": "inject_promedio_prueba",
+        "type": "inject",
+        "z": "flow_suelo",
+        "name": "PRUEBA: ejecutar promedio ahora",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 200,
+        "y": 450,
+        "wires": [
+            [
+                "fn_promedio_diario"
+            ]
+        ]
+    },
+    {
+        "id": "fn_promedio_diario",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Calcular promedio diario",
+        "func": "// Promedio solo del día actual en hora Colombia (America/Bogota).\n// La columna \"timestamp\" es timestamp WITH time zone.\n// Se borra el registro de hoy para no duplicar si se ejecuta dos veces.\nconst hoy = \"(NOW() AT TIME ZONE 'America/Bogota')::date\";\n\nmsg.query = `\nDELETE FROM promedio_diario\nWHERE fecha = ${hoy};\n\nINSERT INTO promedio_diario (humedad_promedio, fecha)\nSELECT AVG(humedad), ${hoy}\nFROM humedad\nWHERE (\"timestamp\" AT TIME ZONE 'America/Bogota')::date = ${hoy}\nHAVING AVG(humedad) IS NOT NULL;\n`;\n\nmsg.params = [];\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 400,
+        "wires": [
+            [
+                "pg_promedio"
+            ]
+        ]
+    },
+    {
+        "id": "pg_promedio",
+        "type": "postgresql",
+        "z": "flow_suelo",
+        "name": "Insert Promedio Diario",
+        "query": "",
+        "postgreSQLConfig": "supabase_config",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 700,
+        "y": 400,
+        "wires": [
+            [
+                "debug_promedio"
+            ]
+        ]
+    },
+    {
+        "id": "debug_promedio",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "Resultado Promedio",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "pgsql",
+        "targetType": "msg",
+        "statusVal": "pgsql",
+        "statusType": "msg",
+        "x": 940,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "catch_errores",
+        "type": "catch",
+        "z": "flow_suelo",
+        "name": "Errores",
+        "scope": null,
+        "uncaught": false,
+        "x": 150,
+        "y": 480,
+        "wires": [
+            [
+                "debug_errores"
+            ]
+        ]
+    },
+    {
+        "id": "debug_errores",
+        "type": "debug",
+        "z": "flow_suelo",
+        "name": "Errores",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 400,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "http_health_in",
+        "type": "http in",
+        "z": "flow_suelo",
+        "name": "Health check",
+        "url": "/health",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 600,
+        "wires": [
+            [
+                "fn_health"
+            ]
+        ]
+    },
+    {
+        "id": "fn_health",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "OK",
+        "func": "msg.payload = {status:'ok'};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 350,
+        "y": 600,
+        "wires": [
+            [
+                "http_health_out"
+            ]
+        ]
+    },
+    {
+        "id": "http_health_out",
+        "type": "http response",
+        "z": "flow_suelo",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 550,
+        "y": 600,
+        "wires": []
+    },
+    {
+        "id": "broker_emqx",
+        "type": "mqtt-broker",
+        "name": "EMQX Cloud",
+        "broker": "mddff08f.ala.us-east-1.emqxsl.com",
+        "port": "8883",
+        "tls": "tls_emqx",
+        "clientid": "nodered-suelo-render",
+        "autoConnect": true,
+        "usetls": true,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "supabase_config",
+        "type": "postgreSQLConfig",
+        "name": "Supabase",
+        "host": "PGHOST",
+        "hostFieldType": "env",
+        "port": "PGPORT",
+        "portFieldType": "env",
+        "database": "PGDATABASE",
+        "databaseFieldType": "env",
+        "ssl": "{\"rejectUnauthorized\":false}",
+        "sslFieldType": "json",
+        "applicationName": "node-red-suelo",
+        "applicationNameType": "str",
+        "max": 5,
+        "maxFieldType": "num",
+        "idle": 10000,
+        "idleFieldType": "num",
+        "connectionTimeout": 15000,
+        "connectionTimeoutFieldType": "num",
+        "userFieldType": "env",
+        "userEnv": "PGUSER",
+        "passwordFieldType": "env",
+        "passwordEnv": "PGPASSWORD"
+    },
+    {
+        "id": "tls_emqx",
+        "type": "tls-config",
+        "name": "TLS EMQX Cloud",
+        "cert": "",
+        "key": "",
+        "ca": "",
+        "certname": "",
+        "keyname": "",
+        "caname": "",
+        "servername": "mddff08f.ala.us-east-1.emqxsl.com",
+        "verifyservercert": false,
+        "alpnprotocol": ""
+    },
+    {
+        "id": "c4fa2e4b5ad1d8dc",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-contrib-postgresql": "0.16.2"
+        }
+    },
+    {
+        "id": "http_control_in",
+        "type": "http in",
+        "z": "flow_suelo",
+        "name": "Control remoto Django",
+        "url": "/control",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 700,
+        "wires": [
+            [
+                "fn_control_mqtt"
+            ]
+        ]
+    },
+    {
+        "id": "fn_control_mqtt",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Validar comando y preparar MQTT",
+        "func": "// Django envia JSON: {\"dispositivo\":\"bomba\",\"estado\":\"ON\"}\n// dispositivo: bomba | sensor. estado: ON | OFF.\nconst body = msg.payload;\nconst dispositivo = body && typeof body.dispositivo === 'string' ? body.dispositivo.toLowerCase() : '';\nconst estado = body && typeof body.estado === 'string' ? body.estado.toUpperCase() : '';\n\nif (![\"bomba\", \"sensor\"].includes(dispositivo) || ![\"ON\", \"OFF\"].includes(estado)) {\n    msg.statusCode = 400;\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.payload = { ok: false, error: 'Solicitud inválida. Use dispositivo=bomba|sensor y estado=ON|OFF.' };\n    return [null, msg];\n}\n\n// Topicos de comando separados de los topicos de telemetria/estado.\nconst mqttMsg = {\n    topic: 'esp32/suelo/' + dispositivo + '/control',\n    payload: estado,\n    qos: 1,\n    retain: false\n};\n\nconst responseMsg = { ...msg };\nresponseMsg.statusCode = 200;\nresponseMsg.headers = { 'Content-Type': 'application/json' };\nresponseMsg.payload = {\n    ok: true,\n    mensaje: 'Comando aceptado por Node-RED; publicación MQTT solicitada',\n    dispositivo: dispositivo,\n    estado: estado,\n    topic: mqttMsg.topic\n};\nreturn [mqttMsg, responseMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 700,
+        "wires": [
+            [
+                "mqtt_control_out"
+            ],
+            [
+                "http_control_out"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_control_out",
+        "type": "mqtt out",
+        "z": "flow_suelo",
+        "name": "Enviar comando a ESP32",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker_emqx",
+        "x": 740,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "http_control_out",
+        "type": "http response",
+        "z": "flow_suelo",
+        "name": "Respuesta Django",
+        "statusCode": "",
+        "headers": {},
+        "x": 740,
+        "y": 740,
+        "wires": []
+    }
+]
