@@ -24,7 +24,8 @@
         "wires": [
             [
                 "fn_preparar_insert",
-                "debug_datos"
+                "debug_datos",
+                "fn_resolver_sensor"
             ]
         ]
     },
@@ -503,6 +504,174 @@
         "headers": {},
         "x": 740,
         "y": 740,
+        "wires": []
+    },
+    {
+        "id": "http_motor_in",
+        "type": "http in",
+        "z": "flow_suelo",
+        "name": "Motor 5 segundos",
+        "url": "/motor",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 170,
+        "y": 820,
+        "wires": [
+            [
+                "fn_motor"
+            ]
+        ]
+    },
+    {
+        "id": "fn_motor",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Encender bomba y responder",
+        "func": "// Enciende la bomba y responde de inmediato. El apagado se programa\n// 5 segundos despues con el nodo delay.\nconst duracion = Number(msg.payload && msg.payload.duracion);\nconst segundos = Number.isFinite(duracion) && duracion > 0 && duracion <= 60 ? duracion : 5;\n\nconst commandMsg = {\n    topic: 'esp32/suelo/bomba/control',\n    payload: 'ON',\n    qos: 1,\n    retain: false,\n    delay: segundos * 1000\n};\n\nconst responseMsg = {\n    res: msg.res,\n    statusCode: 200,\n    headers: { 'Content-Type': 'application/json' },\n    payload: { status: 'ok', bomba: 'encendida', duracion: segundos }\n};\n\nreturn [commandMsg, responseMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 800,
+        "wires": [
+            [
+                "mqtt_control_out",
+                "delay_motor_off"
+            ],
+            [
+                "http_motor_out"
+            ]
+        ]
+    },
+    {
+        "id": "http_motor_out",
+        "type": "http response",
+        "z": "flow_suelo",
+        "name": "Respuesta motor",
+        "statusCode": "",
+        "headers": {},
+        "x": 720,
+        "y": 780,
+        "wires": []
+    },
+    {
+        "id": "delay_motor_off",
+        "type": "delay",
+        "z": "flow_suelo",
+        "name": "5 segundos",
+        "pauseType": "delay",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 650,
+        "y": 840,
+        "wires": [
+            [
+                "fn_motor_off"
+            ]
+        ]
+    },
+    {
+        "id": "fn_motor_off",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Apagar bomba",
+        "func": "return {\n    topic: 'esp32/suelo/bomba/control',\n    payload: 'OFF',\n    qos: 1,\n    retain: false\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 850,
+        "y": 840,
+        "wires": [
+            [
+                "mqtt_control_out"
+            ]
+        ]
+    },
+    {
+        "id": "http_sensor_in",
+        "type": "http in",
+        "z": "flow_suelo",
+        "name": "Leer sensor",
+        "url": "/sensor/leer",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 920,
+        "wires": [
+            [
+                "fn_sensor_leer"
+            ]
+        ]
+    },
+    {
+        "id": "fn_sensor_leer",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Pedir lectura con request_id",
+        "func": "// HTTP se queda esperando la respuesta MQTT del ESP32. Se guarda msg.res\n// y un temporizador para responder 504 si el sensor no contesta.\nconst requestId = RED.util.generateId().replace(/\\./g, '');\nconst timeoutMs = 10000;\n\nconst pending = {\n    res: msg.res,\n    timer: setTimeout(function () {\n        const current = flow.get('sensor_read_' + requestId);\n        if (!current) return;\n        flow.set('sensor_read_' + requestId, null);\n        node.send([null, {\n            res: current.res,\n            statusCode: 504,\n            headers: { 'Content-Type': 'application/json' },\n            payload: { status: 'error', error: 'sensor_timeout', request_id: requestId }\n        }]);\n    }, timeoutMs)\n};\nflow.set('sensor_read_' + requestId, pending);\n\nreturn [{\n    topic: 'esp32/suelo/sensor/leer',\n    payload: JSON.stringify({ request_id: requestId }),\n    qos: 1,\n    retain: false\n}, null];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 920,
+        "wires": [
+            [
+                "mqtt_control_out"
+            ],
+            [
+                "http_sensor_out"
+            ]
+        ]
+    },
+    {
+        "id": "fn_resolver_sensor",
+        "type": "function",
+        "z": "flow_suelo",
+        "name": "Resolver lectura del sensor",
+        "func": "// Solo actua si el dato trae request_id (lectura solicitada por HTTP).\n// Las lecturas periodicas sin request_id se insertan en Supabase como siempre.\nconst payload = msg.payload;\nif (!payload || typeof payload !== 'object' || !payload.request_id) {\n    return null;\n}\n\nconst key = 'sensor_read_' + payload.request_id;\nconst pending = flow.get(key);\nif (!pending) {\n    return null;\n}\n\nclearTimeout(pending.timer);\nflow.set(key, null);\n\nconst humedad = Number(payload.humedad);\nif (!Number.isFinite(humedad)) {\n    return {\n        res: pending.res,\n        statusCode: 502,\n        headers: { 'Content-Type': 'application/json' },\n        payload: { status: 'error', error: 'sensor_data_invalid', request_id: payload.request_id }\n    };\n}\n\nreturn {\n    res: pending.res,\n    statusCode: 200,\n    headers: { 'Content-Type': 'application/json' },\n    payload: {\n        status: 'ok',\n        humedad: humedad,\n        timestamp: payload.timestamp || new Date().toISOString(),\n        request_id: payload.request_id\n    }\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 200,
+        "wires": [
+            [
+                "http_sensor_out"
+            ]
+        ]
+    },
+    {
+        "id": "http_sensor_out",
+        "type": "http response",
+        "z": "flow_suelo",
+        "name": "Respuesta sensor",
+        "statusCode": "",
+        "headers": {},
+        "x": 740,
+        "y": 920,
         "wires": []
     }
 ]

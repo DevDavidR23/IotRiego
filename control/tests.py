@@ -2,7 +2,6 @@ import json
 from unittest.mock import patch
 
 import requests
-from django.contrib.auth.models import AnonymousUser, User
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from . import services, views
@@ -10,6 +9,7 @@ from . import services, views
 NODERED_SETTINGS = {
     'NODERED_BASE_URL': 'https://node-red.test',
     'NODERED_TIMEOUT': 5,
+    'NODERED_SENSOR_TIMEOUT': 15,
 }
 
 
@@ -52,20 +52,78 @@ class NodeRedServiceTests(SimpleTestCase):
         with self.assertRaises(services.NodeRedResponseError):
             services.check_health()
 
+    @patch('control.services.requests.post')
+    def test_activate_motor_calls_motor_endpoint(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'ok',
+            'bomba': 'encendida',
+            'duracion': 5,
+        }
+
+        result = services.activate_motor()
+
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'https://node-red.test/motor')
+        self.assertEqual(kwargs['json'], {'duracion': 5})
+        self.assertEqual(result['bomba'], 'encendida')
+        self.assertEqual(result['duracion'], 5)
+
+    @patch('control.services.requests.post')
+    def test_activate_motor_maps_gateway_timeout(self, mock_post):
+        mock_post.return_value.status_code = 504
+
+        with self.assertRaises(services.NodeRedTimeout):
+            services.activate_motor()
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_calls_sensor_endpoint(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'ok',
+            'humedad': 42.5,
+            'timestamp': '2026-11-05T15:00:00Z',
+            'request_id': 'abc',
+        }
+
+        result = services.read_sensor()
+
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'https://node-red.test/sensor/leer')
+        self.assertEqual(kwargs['json'], {})
+        self.assertEqual(kwargs['timeout'], 15)
+        self.assertEqual(result['humedad'], 42.5)
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_maps_gateway_timeout(self, mock_post):
+        mock_post.return_value.status_code = 504
+
+        with self.assertRaises(services.NodeRedTimeout):
+            services.read_sensor()
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_rejects_error_body(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'error',
+            'error': 'sensor_timeout',
+        }
+
+        with self.assertRaises(services.NodeRedResponseError):
+            services.read_sensor()
+
 
 @override_settings(**NODERED_SETTINGS)
 class ControlDeviceViewTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
-        self.staff = User(is_staff=True, is_active=True)
 
-    def _post(self, payload, user=None):
+    def _post(self, payload):
         request = self.factory.post(
             '/api/control/',
             data=json.dumps(payload),
             content_type='application/json',
         )
-        request.user = self.staff if user is None else user
         return views.control_device(request)
 
     def _payload(self, response):
@@ -179,7 +237,6 @@ class ControlDeviceViewTests(SimpleTestCase):
             data='no-es-json',
             content_type='application/json',
         )
-        request.user = self.staff
 
         response = views.control_device(request)
 
@@ -214,54 +271,129 @@ class ControlDeviceViewTests(SimpleTestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(self._payload(response)['code'], 'node_red_error')
 
-    @patch('control.services.requests.post')
-    def test_user_without_permissions(self, mock_post):
-        user = User(is_staff=False, is_active=True)
+    def test_view_is_public_and_csrf_exempt(self):
+        self.assertTrue(getattr(views.control_device, 'csrf_exempt', False))
 
-        response = self._post(
-            {'dispositivo': 'bomba', 'estado': 'ON'},
-            user=user,
+
+@override_settings(**NODERED_SETTINGS)
+class ControlMotorViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _post(self, payload=None):
+        request = self.factory.post(
+            '/api/control/motor/',
+            data=json.dumps(payload) if payload is not None else '',
+            content_type='application/json',
         )
-
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(self._payload(response)['code'], 'forbidden')
-        mock_post.assert_not_called()
-
-    @patch('control.services.requests.post')
-    def test_anonymous_user(self, mock_post):
-        response = self._post(
-            {'dispositivo': 'bomba', 'estado': 'ON'},
-            user=AnonymousUser(),
-        )
-
-        self.assertEqual(response.status_code, 403)
-        mock_post.assert_not_called()
+        return views.control_motor(request)
 
     @patch('control.services.requests.post')
-    def test_inactive_staff_user(self, mock_post):
-        user = User(is_staff=True, is_active=False)
+    def test_motor_returns_encendida(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'ok',
+            'bomba': 'encendida',
+            'duracion': 5,
+        }
 
-        response = self._post(
-            {'dispositivo': 'bomba', 'estado': 'ON'},
-            user=user,
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertEqual(body['bomba'], 'encendida')
+        self.assertEqual(body['duracion'], 5)
+        self.assertEqual(
+            mock_post.call_args.kwargs['json'],
+            {'duracion': 5},
         )
 
-        self.assertEqual(response.status_code, 403)
-        mock_post.assert_not_called()
+    @patch('control.services.requests.post')
+    def test_motor_accepts_custom_duration(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'ok',
+            'bomba': 'encendida',
+            'duracion': 8,
+        }
 
-    def test_view_keeps_csrf_protection(self):
-        self.assertFalse(getattr(views.control_device, 'csrf_exempt', False))
+        response = self._post({'duracion': 8})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_post.call_args.kwargs['json'], {'duracion': 8})
+
+    @patch('control.services.requests.post')
+    def test_motor_timeout(self, mock_post):
+        mock_post.return_value.status_code = 504
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(json.loads(response.content)['code'], 'node_red_timeout')
+
+    def test_motor_is_csrf_exempt(self):
+        self.assertTrue(getattr(views.control_motor, 'csrf_exempt', False))
+
+
+@override_settings(**NODERED_SETTINGS)
+class ControlReadSensorViewTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _post(self):
+        request = self.factory.post(
+            '/api/control/read-sensor/',
+            data='',
+            content_type='application/json',
+        )
+        return views.control_read_sensor(request)
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_returns_data(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            'status': 'ok',
+            'humedad': 42.5,
+            'timestamp': '2026-11-05T15:00:00Z',
+            'request_id': 'abc',
+        }
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.content)
+        self.assertEqual(body['humedad'], 42.5)
+        self.assertEqual(body['timestamp'], '2026-11-05T15:00:00Z')
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_timeout(self, mock_post):
+        mock_post.return_value.status_code = 504
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(json.loads(response.content)['code'], 'node_red_timeout')
+
+    @patch('control.services.requests.post')
+    def test_read_sensor_unavailable(self, mock_post):
+        mock_post.side_effect = requests.ConnectionError('sin conexion')
+
+        response = self._post()
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(json.loads(response.content)['code'], 'node_red_unavailable')
+
+    def test_read_sensor_is_csrf_exempt(self):
+        self.assertTrue(getattr(views.control_read_sensor, 'csrf_exempt', False))
 
 
 @override_settings(**NODERED_SETTINGS)
 class ControlHealthViewTests(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
-        self.user = User(is_staff=False, is_active=True)
 
-    def _get(self, user=None):
+    def _get(self):
         request = self.factory.get('/api/control/health/')
-        request.user = self.user if user is None else user
         return views.control_health(request)
 
     @patch('control.services.requests.get')
@@ -300,13 +432,6 @@ class ControlHealthViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(json.loads(response.content)['code'], 'node_red_error')
-
-    @patch('control.services.requests.get')
-    def test_health_requires_authentication(self, mock_get):
-        response = self._get(user=AnonymousUser())
-
-        self.assertEqual(response.status_code, 403)
-        mock_get.assert_not_called()
 
     @override_settings(NODERED_BASE_URL='')
     @patch('control.services.requests.get')

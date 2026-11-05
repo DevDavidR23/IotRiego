@@ -25,4 +25,6 @@ services:
         sync: false
       - key: NODERED_TIMEOUT
         value: "5"
+      - key: NODERED_SENSOR_TIMEOUT
+        value: "15"
 

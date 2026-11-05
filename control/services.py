@@ -17,6 +17,8 @@ VALID_STATES = frozenset({'ON', 'OFF'})
 
 HEALTH_PATH = '/health'
 CONTROL_PATH = '/control'
+MOTOR_PATH = '/motor'
+SENSOR_PATH = '/sensor/leer'
 
 
 class NodeRedError(Exception):
@@ -53,6 +55,13 @@ def _timeout():
         return float(getattr(settings, 'NODERED_TIMEOUT', 5))
     except (TypeError, ValueError):
         return 5.0
+
+
+def _sensor_timeout():
+    try:
+        return float(getattr(settings, 'NODERED_SENSOR_TIMEOUT', 15))
+    except (TypeError, ValueError):
+        return 15.0
 
 
 def _headers():
@@ -133,4 +142,84 @@ def send_command(dispositivo, estado):
     return {
         'payload': payload,
         'status_code': response.status_code,
+    }
+
+
+def _response_json(response):
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NodeRedResponseError(
+            'Node-RED devolvio una respuesta no valida.'
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise NodeRedResponseError('Node-RED devolvio una respuesta no valida.')
+
+    return data
+
+
+def _raise_for_status(response):
+    if response.status_code == 504:
+        raise NodeRedTimeout('Node-RED no respondio dentro del tiempo esperado.')
+    if response.status_code == 503:
+        raise NodeRedUnavailable('Node-RED no esta disponible.')
+    if not 200 <= response.status_code < 300:
+        raise NodeRedResponseError(
+            f'Node-RED respondio con estado HTTP {response.status_code}.'
+        )
+
+
+def activate_motor(duracion=5):
+    """Solicita a Node-RED encender la bomba durante ``duracion`` segundos."""
+    try:
+        duracion = int(duracion)
+    except (TypeError, ValueError):
+        duracion = 5
+    if duracion <= 0 or duracion > 60:
+        duracion = 5
+
+    response = _request('post', MOTOR_PATH, json={'duracion': duracion})
+    _raise_for_status(response)
+    data = _response_json(response)
+
+    logger.info(
+        'Motor solicitado a Node-RED: duracion=%ss status=%s',
+        duracion,
+        response.status_code,
+    )
+
+    return {
+        'status': 'ok',
+        'bomba': data.get('bomba', 'encendida'),
+        'duracion': data.get('duracion', duracion),
+        'node_red_status': response.status_code,
+    }
+
+
+def read_sensor():
+    """Solicita a Node-RED una lectura sincronica del sensor."""
+    response = _request(
+        'post',
+        SENSOR_PATH,
+        json={},
+        timeout=_sensor_timeout(),
+    )
+    _raise_for_status(response)
+    data = _response_json(response)
+
+    if data.get('status') == 'error':
+        error = data.get('error') or 'sensor_error'
+        raise NodeRedResponseError(f'Node-RED reporto un error: {error}.')
+
+    if 'humedad' not in data:
+        raise NodeRedResponseError('Node-RED no devolvio la humedad del sensor.')
+
+    logger.info('Lectura de sensor recibida desde Node-RED: %s', data.get('humedad'))
+
+    return {
+        'status': 'ok',
+        'humedad': data.get('humedad'),
+        'timestamp': data.get('timestamp'),
+        'request_id': data.get('request_id'),
     }

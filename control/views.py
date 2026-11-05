@@ -1,6 +1,7 @@
 import json
 
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from . import services
@@ -10,19 +11,6 @@ ALLOWED_FIELDS = frozenset({'dispositivo', 'estado'})
 
 def _error(code, message, status):
     return JsonResponse({'error': message, 'code': code}, status=status)
-
-
-def _can_control(user):
-    return bool(
-        user
-        and user.is_authenticated
-        and user.is_active
-        and user.is_staff
-    )
-
-
-def _can_check_health(user):
-    return bool(user and user.is_authenticated and user.is_active)
 
 
 def _json_body(request):
@@ -45,15 +33,9 @@ def _node_red_error_response(exc):
     return _error('node_red_error', str(exc), 502)
 
 
+@csrf_exempt
 @require_http_methods(['POST'])
 def control_device(request):
-    if not _can_control(request.user):
-        return _error(
-            'forbidden',
-            'Se requieren permisos para controlar los dispositivos.',
-            403,
-        )
-
     try:
         data = _json_body(request)
     except ValueError as exc:
@@ -112,15 +94,39 @@ def control_device(request):
     )
 
 
+@csrf_exempt
+@require_http_methods(['POST'])
+def control_motor(request):
+    try:
+        duracion = 5
+        if request.body:
+            try:
+                data = json.loads(request.body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return _error('invalid_json', 'El cuerpo de la peticion no es JSON valido.', 400)
+            if isinstance(data, dict) and 'duracion' in data:
+                duracion = data['duracion']
+
+        result = services.activate_motor(duracion)
+    except services.NodeRedError as exc:
+        return _node_red_error_response(exc)
+
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def control_read_sensor(request):
+    try:
+        result = services.read_sensor()
+    except services.NodeRedError as exc:
+        return _node_red_error_response(exc)
+
+    return JsonResponse(result)
+
+
 @require_http_methods(['GET'])
 def control_health(request):
-    if not _can_check_health(request.user):
-        return _error(
-            'forbidden',
-            'Se requiere autenticacion para consultar Node-RED.',
-            403,
-        )
-
     try:
         data = services.check_health()
     except services.NodeRedError as exc:

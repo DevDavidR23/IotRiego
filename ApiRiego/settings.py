@@ -116,6 +116,11 @@ try:
 except ValueError:
     NODERED_TIMEOUT = 5.0
 
+try:
+    NODERED_SENSOR_TIMEOUT = float(os.getenv('NODERED_SENSOR_TIMEOUT', '15'))
+except ValueError:
+    NODERED_SENSOR_TIMEOUT = 15.0
+
 ROOT_URLCONF = 'ApiRiego.urls'
 
 TEMPLATES = [
